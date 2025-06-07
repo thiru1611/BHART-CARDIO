@@ -253,14 +253,13 @@ if uploaded_file is not None:
             st.session_state.is_streaming = False # Ensure streaming stops if PDF analysis starts
             st.session_state.pdf_analysis_triggered = True
             st.session_state.ecg_type = 'normal' # Set type for simulated analysis
-            st.experimental_rerun() # Force rerun to display PDF analysis immediately
+            # st.experimental_rerun() # REMOVED: No longer needed here
 
     with col_pdf_mi:
         if st.button("Simulate MI Result for PDF", type="secondary", disabled=st.session_state.is_streaming, key="pdf_mi_btn"):
             st.session_state.is_streaming = False # Ensure streaming stops if PDF analysis starts
             st.session_state.pdf_analysis_triggered = True
-            st.session_state.ecg_type = 'mi' # Set type for simulated analysis
-            st.experimental_rerun() # Force rerun to display PDF analysis immediately
+            # st.experimental_rerun() # REMOVED: No longer needed here
 
     # Clear analysis results if a new PDF is uploaded or stream started
     if not st.session_state.is_streaming and not st.session_state.pdf_analysis_triggered:
