@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 // This function simulates the different phases of an ECG waveform (P, QRS, T) and adds noise.
 // For MI, it introduces simulated ST elevation, deeper Q waves, and inverted T waves.
 const generateECGPoint = (time, type) => {
-  // Simulate a heart rate of 60 bpm (1 beat per second)
+  // Simulate a heart rate of 60 bpm
   const beatDuration = 1000; // milliseconds for one complete ECG cycle
   const timeInBeat = time % beatDuration; // Current time within the 1-second beat cycle
 
