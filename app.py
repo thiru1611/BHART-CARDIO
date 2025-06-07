@@ -83,6 +83,60 @@ def perform_ai_analysis(ecg_type):
         ]
     return new_diagnosis, new_confidence_score, new_characteristics
 
+# --- New Function: Simulate Digitization and Model Inference for PDF ---
+def simulate_pdf_analysis_and_inference(simulated_ecg_type):
+    # This function simulates the entire process from PDF upload to AI diagnosis.
+    # In a real application, 'uploaded_pdf' would be processed by a digitization
+    # library (e.g., using OpenCV to extract waveform from image, or a dedicated
+    # ECG PDF parser), and then that extracted data would be fed into a real ML model.
+
+    st.markdown("---")
+    st.subheader("Simulated ECG Digitization from PDF")
+    st.info(f"Assuming the uploaded PDF contained an **{simulated_ecg_type.upper()}** ECG, the app now simulates its digitization and AI inference.")
+
+    # Generate a static ECG waveform for display, as if digitized
+    # We will generate a fixed number of points to represent a "snapshot"
+    num_points_for_static_ecg = 1000 # Represents about 10 seconds of ECG at 100 points/sec
+    static_ecg_data = [generate_ecg_point(i * 10, simulated_ecg_type) for i in range(num_points_for_static_ecg)] # Simulate 10ms per point
+    
+    chart_df = pd.DataFrame({
+        'Time (ms)': range(0, num_points_for_static_ecg * 10, 10), # Time in ms
+        'ECG Signal (mV)': static_ecg_data
+    })
+    st.line_chart(chart_df.set_index('Time (ms)'))
+    st.markdown("<p style='text-align: center; color: #718096; font-size: 0.875rem; font-style: italic;'>Simulated ECG waveform as if extracted from PDF.</p>", unsafe_allow_html=True)
+
+
+    st.markdown("---")
+    st.subheader("Simulated AI Model Inference")
+    
+    # Simulate model inference
+    diagnosis, confidence_score, characteristics = perform_ai_analysis(simulated_ecg_type)
+    
+    # Display results
+    diagnosis_style_color = '#065f46' if simulated_ecg_type == 'normal' else '#b91c1c'
+    bg_color = '#ecfdf5' if simulated_ecg_type == 'normal' else '#fef2f2'
+    
+    st.markdown(f"""
+        <div style='background-color: {bg_color}; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);'>
+            <p style='text-align: left; font-size: 1.125rem; margin-bottom: 0.5rem;'>
+                <span style='font-weight: 500;'>AI Diagnosis:</span>
+                <span style='font-weight: 700; color: {diagnosis_style_color};'> {diagnosis}</span>
+            </p>
+            <p style='text-align: left; font-size: 1.125rem; margin-bottom: 1rem;'>
+                <span style='font-weight: 500;'>Confidence Score:</span>
+                <span style='font-weight: 700; color: #4a5568;'> {confidence_score}%</span>
+            </p>
+            <h3 style='font-size: 1.25rem; font-weight: 600; color: #4a5568; margin-bottom: 0.75rem;'>Key ECG Characteristics:</h3>
+            <ul style='list-style-type: disc; margin-left: 1.25rem; color: #4a5568;'>
+                {"".join(f"<li>{char}</li>" for char in characteristics)}
+            </ul>
+            <p style='text-align: left; font-size: 0.875rem; color: #718096; margin-top: 1rem; font-style: italic;'>
+                Disclaimer: The digitization and AI analysis for this PDF are simulated based on your selection. For actual clinical use, real ECG signal extraction from PDF and a validated AI model are required.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+
 # Streamlit App UI
 st.set_page_config(layout="centered", page_title="Real-Time AI-Based ECG Analyzer", page_icon="❤️")
 
@@ -162,7 +216,6 @@ with col1:
         st.session_state.ecg_type = 'normal'
         st.session_state.pdf_analysis_triggered = False # Reset PDF analysis state
         st.session_state.uploaded_pdf = None # Clear uploaded PDF
-        # st.experimental_rerun() # REMOVED: No longer needed here
         
 with col2:
     if st.button("Start MI ECG Stream", type="secondary", disabled=st.session_state.is_streaming):
@@ -170,7 +223,6 @@ with col2:
         st.session_state.ecg_type = 'mi'
         st.session_state.pdf_analysis_triggered = False # Reset PDF analysis state
         st.session_state.uploaded_pdf = None # Clear uploaded PDF
-        # st.experimental_rerun() # REMOVED: No longer needed here
 
 with col3:
     if st.session_state.is_streaming:
@@ -178,7 +230,6 @@ with col3:
             st.session_state.is_streaming = False
             st.session_state.ecg_type = None
             st.session_state.pdf_analysis_triggered = False # Reset PDF analysis state
-            # st.experimental_rerun() # REMOVED: No longer needed here
 
 # Placeholder for the ECG chart
 chart_placeholder = st.empty()
@@ -194,35 +245,22 @@ if uploaded_file is not None:
     st.success(f"PDF uploaded successfully: {uploaded_file.name}")
     st.info("Note: This app will simulate an AI diagnosis for the uploaded PDF. Actual ECG signal extraction and real AI analysis from a PDF is a complex task beyond the scope of this demo.")
 
-    # Display the uploaded PDF (a basic embed, may not work on all environments without external libraries)
-    # For a full-fledged PDF viewer, you might need `streamlit_pdf_viewer`
-    # st.write(f"Displaying {uploaded_file.name}:")
-    # st.download_button(
-    #     label="Download Uploaded PDF",
-    #     data=uploaded_file.getvalue(),
-    #     file_name=uploaded_file.name,
-    #     mime="application/pdf"
-    # )
-    # You could also use an iframe here, but security policies often restrict this
-    # st.markdown(f'<iframe src="data:application/pdf;base64,{base64.b64encode(uploaded_file.getvalue()).decode()}" width="700" height="400" type="application/pdf"></iframe>', unsafe_allow_html=True)
-
-
     st.subheader("Simulate AI Analysis for Uploaded PDF")
     col_pdf_normal, col_pdf_mi = st.columns(2)
 
     with col_pdf_normal:
-        if st.button("Simulate Normal Result for PDF", disabled=st.session_state.is_streaming):
+        if st.button("Simulate Normal Result for PDF", disabled=st.session_state.is_streaming, key="pdf_normal_btn"):
             st.session_state.is_streaming = False # Ensure streaming stops if PDF analysis starts
             st.session_state.pdf_analysis_triggered = True
             st.session_state.ecg_type = 'normal' # Set type for simulated analysis
-            # st.experimental_rerun()
+            st.experimental_rerun() # Force rerun to display PDF analysis immediately
 
     with col_pdf_mi:
-        if st.button("Simulate MI Result for PDF", type="secondary", disabled=st.session_state.is_streaming):
+        if st.button("Simulate MI Result for PDF", type="secondary", disabled=st.session_state.is_streaming, key="pdf_mi_btn"):
             st.session_state.is_streaming = False # Ensure streaming stops if PDF analysis starts
             st.session_state.pdf_analysis_triggered = True
             st.session_state.ecg_type = 'mi' # Set type for simulated analysis
-            # st.experimental_rerun()
+            st.experimental_rerun() # Force rerun to display PDF analysis immediately
 
     # Clear analysis results if a new PDF is uploaded or stream started
     if not st.session_state.is_streaming and not st.session_state.pdf_analysis_triggered:
@@ -292,35 +330,10 @@ if st.session_state.is_streaming and st.session_state.ecg_type:
 
 # --- Display PDF Analysis Results (if triggered) ---
 if st.session_state.pdf_analysis_triggered and st.session_state.ecg_type:
-    # Perform AI analysis
-    diagnosis, confidence_score, characteristics = perform_ai_analysis(st.session_state.ecg_type)
-    
-    with analysis_placeholder.container():
-        st.markdown(f"<h2 style='text-align: center; color: #4a5568;'>AI Analysis Result for Uploaded PDF:</h2>", unsafe_allow_html=True)
-        diagnosis_style_color = '#065f46' if st.session_state.ecg_type == 'normal' else '#b91c1c'
-        bg_color = '#ecfdf5' if st.session_state.ecg_type == 'normal' else '#fef2f2'
-        st.markdown(f"""
-            <div style='background-color: {bg_color}; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);'>
-                <p style='text-align: left; font-size: 1.125rem; margin-bottom: 0.5rem;'>
-                    <span style='font-weight: 500;'>Diagnosis:</span>
-                    <span style='font-weight: 700; color: {diagnosis_style_color};'> {diagnosis}</span>
-                </p>
-                <p style='text-align: left; font-size: 1.125rem; margin-bottom: 1rem;'>
-                    <span style='font-weight: 500;'>Confidence Score:</span>
-                    <span style='font-weight: 700; color: #4a5568;'> {confidence_score}%</span>
-                </p>
-                <h3 style='font-size: 1.25rem; font-weight: 600; color: #4a5568; margin-bottom: 0.75rem;'>Typical ECG Characteristics:</h3>
-                <ul style='list-style-type: disc; margin-left: 1.25rem; color: #4a5568;'>
-                    {"".join(f"<li>{char}</li>" for char in characteristics)}
-                </ul>
-                <p style='text-align: left; font-size: 0.875rem; color: #718096; margin-top: 1rem; font-style: italic;'>
-                    Note: This application provides a simulated AI analysis for uploaded PDFs for educational purposes only. It is not a medical device and should not be used for actual diagnosis.
-                </p>
-            </div>
-        """, unsafe_allow_html=True)
-    # Clear PDF analysis flag after displaying results
+    chart_placeholder.empty() # Clear any previous chart if PDF analysis is triggered
+
+    # Simulate digitization and model inference for the PDF
+    simulate_pdf_analysis_and_inference(st.session_state.ecg_type)
+
+    # Clear PDF analysis flag after displaying results (important for proper state management)
     st.session_state.pdf_analysis_triggered = False
-
-
-      
-       
