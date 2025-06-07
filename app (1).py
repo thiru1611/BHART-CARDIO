@@ -1,340 +1,376 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-import cv2
-import numpy as np
-from fpdf import FPDF
-import uuid
-import streamlit as st
-import tempfile
-from PIL import Image
-import datetime
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.image import load_img, img_to_array
-import matplotlib.pyplot as plt
-import seaborn as sns
+// Utility function to generate a single ECG point (Y-value) at a given time for a specific type
+// This function simulates the different phases of an ECG waveform (P, QRS, T) and adds noise.
+// For MI, it introduces simulated ST elevation, deeper Q waves, and inverted T waves.
+const generateECGPoint = (time, type) => {
+  // Simulate a heart rate of 60 bpm (1 beat per second)
+  const beatDuration = 1000; // milliseconds for one complete ECG cycle
+  const timeInBeat = time % beatDuration; // Current time within the 1-second beat cycle
 
-try:
-    model = load_model("cnn_lstm_model.h5")
-except Exception as e:
-    st.error(f"Failed to load model. Please check the model file.\nError: {e}")
-    st.stop()
+  let y = 0; // Baseline for the ECG signal
 
-# Clinical Configuration
-_MI_TYPES = {
-    'Anterior': {
-        'leads': ['V2', 'V3', 'V4'],
-        'criteria': 'ST elevation >= 2mm (men) or >= 1.5mm (women)'
-    },
-    'Inferior': {
-        'leads': ['II', 'III', 'aVF'],
-        'criteria': 'ST elevation >= 1mm'
-    },
-    'Lateral': {
-        'leads': ['I', 'aVL', 'V5', 'V6'],
-        'criteria': 'ST elevation >= 1mm'
-    },
-    'Posterior': {
-        'leads': ['V1', 'V2'],
-        'criteria': 'ST depression with dominant R wave'
-    },
-    'Right Ventricular': {
-        'leads': ['V1', 'V4R'],
-        'criteria': 'ST elevation >= 1mm in V4R'
-    }
+  // Simulate P wave (at the beginning of the beat cycle)
+  if (timeInBeat >= 0 && timeInBeat < 100) {
+    y += Math.sin(timeInBeat / 100 * Math.PI) * 10; // A small positive hump
+  }
+  // Simulate PR segment (flat line after P wave)
+  else if (timeInBeat >= 100 && timeInBeat < 150) {
+    y += 0;
+  }
+  // Simulate QRS complex (the main sharp spike)
+  else if (timeInBeat >= 150 && timeInBeat < 250) {
+    if (timeInBeat < 170) { // Q wave (downward deflection)
+      y += (timeInBeat - 170) / 20 * 30;
+    } else if (timeInBeat < 200) { // R wave (large upward deflection)
+      y += ((timeInBeat - 170) / 30) * -80;
+    } else { // S wave (downward deflection after R)
+      y += (timeInBeat - 200) / 50 * 50;
+    }
+  }
+  // Simulate ST segment (flat line after S wave, before T wave)
+  else if (timeInBeat >= 250 && timeInBeat < 320) {
+    y += 0;
+  }
+  // Simulate T wave (a broader hump after ST segment)
+  else if (timeInBeat >= 320 && timeInBeat < 450) {
+    y += Math.sin((timeInBeat - 320) / 130 * Math.PI) * 20;
+  }
+
+  // Add random noise to make the signal less perfect
+  y += (Math.random() - 0.5) * 5;
+
+  // Apply Myocardial Infarction (MI) specific changes if `type` is 'mi'
+  if (type === 'mi') {
+    // Simulate ST elevation: A significant upward shift of the ST segment, characteristic of STEMI
+    if (timeInBeat >= 250 && timeInBeat < 320) {
+      y -= 30; // Elevate ST segment by a fixed amount
+    }
+    // Simulate pathological Q wave: A deeper and wider Q wave, often indicating past MI
+    if (timeInBeat >= 150 && timeInBeat < 170) {
+      y += (timeInBeat - 170) / 20 * 60; // Make Q wave significantly deeper
+    }
+    // Simulate T wave inversion: The T wave goes below the baseline, common in MI
+    if (timeInBeat >= 320 && timeInBeat < 450) {
+      y *= -1.5; // Invert and amplify the T wave
+    }
+  }
+
+  return y; // Return the calculated Y-value for the ECG point
+};
+
+// Main App Component
+function App() {
+  const [ecgType, setEcgType] = useState(null); // 'normal' or 'mi' for stream type
+  const [diagnosis, setDiagnosis] = useState('');
+  const [confidenceScore, setConfidenceScore] = useState(0);
+  const [ecgCharacteristics, setEcgCharacteristics] = useState([]);
+  const [ecgData, setEcgData] = useState([]); // Array to store real-time ECG points
+  const [isStreaming, setIsStreaming] = useState(false); // Controls data stream
+  const animationFrameRef = useRef(null); // Ref for requestAnimationFrame ID
+  const lastTimeRef = useRef(0); // Ref to keep track of last animation time
+  const ecgSimTimeRef = useRef(0); // Ref to keep track of simulated ECG time
+
+  // Max number of points to display on the ECG canvas for scrolling effect
+  const MAX_ECG_POINTS = 600; // Corresponds to canvas width for a 1:1 pixel mapping
+
+  // Function to simulate AI analysis based on the selected ECG type
+  const performAIAnalysis = useCallback((type) => {
+    let newDiagnosis = '';
+    let newConfidenceScore = 0;
+    let newCharacteristics = [];
+
+    if (type === 'normal') {
+      newDiagnosis = 'Normal Sinus Rhythm';
+      newConfidenceScore = Math.floor(Math.random() * (99 - 90 + 1)) + 90; // 90-99%
+      newCharacteristics = [
+        'Regular rhythm',
+        'Heart rate 60-100 bpm',
+        'Normal P waves preceding each QRS complex',
+        'Normal PR interval (0.12-0.20s)',
+        'Normal QRS duration (<0.12s)',
+        'Isoelectric ST segment',
+        'Upright T waves',
+      ];
+    } else if (type === 'mi') {
+      newDiagnosis = 'Myocardial Infarction (Simulated)';
+      newConfidenceScore = Math.floor(Math.random() * (95 - 85 + 1)) + 85; // 85-95%
+      newCharacteristics = [
+        'ST segment elevation or depression (depending on MI type)',
+        'Pathological Q waves (wider and deeper than normal)',
+        'T-wave inversion or hyperacute T waves',
+        'Possible abnormal R-wave progression',
+        'May be associated with arrhythmias',
+      ];
+    }
+
+    setDiagnosis(newDiagnosis);
+    setConfidenceScore(newConfidenceScore);
+    setEcgCharacteristics(newCharacteristics);
+  }, []);
+
+  // Effect to manage the real-time ECG data stream
+  useEffect(() => {
+    if (isStreaming && ecgType) {
+      lastTimeRef.current = performance.now(); // Initialize last time for animation
+      ecgSimTimeRef.current = 0; // Reset simulated ECG time
+
+      const animate = (currentTime) => {
+        const deltaTime = currentTime - lastTimeRef.current;
+        lastTimeRef.current = currentTime;
+
+        // Generate new ECG points based on deltaTime
+        const pointsToGenerate = Math.floor(deltaTime / 5); // Generate a point every 5ms
+        for (let i = 0; i < pointsToGenerate; i++) {
+          const newPoint = generateECGPoint(ecgSimTimeRef.current, ecgType);
+          setEcgData(prevData => {
+            const updatedData = [...prevData, newPoint];
+            // Keep only the latest MAX_ECG_POINTS for a scrolling effect
+            return updatedData.slice(Math.max(updatedData.length - MAX_ECG_POINTS, 0));
+          });
+          ecgSimTimeRef.current += 5; // Advance simulated ECG time
+        }
+
+        animationFrameRef.current = requestAnimationFrame(animate);
+      };
+
+      animationFrameRef.current = requestAnimationFrame(animate);
+
+      // Cleanup function to stop the animation frame when component unmounts or stream stops
+      return () => {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+      };
+    } else {
+      // If not streaming, ensure no animation frame is pending
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      setEcgData([]); // Clear data when stream stops
+      setDiagnosis(''); // Clear diagnosis
+      setConfidenceScore(0); // Clear confidence score
+      setEcgCharacteristics([]); // Clear characteristics
+    }
+  }, [isStreaming, ecgType, performAIAnalysis]);
+
+  // Handler for "Start Normal ECG Stream" button
+  const startNormalStream = () => {
+    setEcgType('normal');
+    setIsStreaming(true);
+    performAIAnalysis('normal'); // Perform analysis when stream type is set
+  };
+
+  // Handler for "Start MI ECG Stream" button
+  const startMIStream = () => {
+    setEcgType('mi');
+    setIsStreaming(true);
+    performAIAnalysis('mi'); // Perform analysis when stream type is set
+  };
+
+  // Handler for "Stop Stream" button
+  const stopStream = () => {
+    setIsStreaming(false);
+    setEcgType(null); // Reset ECG type
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4 font-inter">
+      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-4xl">
+        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
+          Real-Time AI-Based ECG Analyzer (Simulated)
+        </h1>
+        <p className="text-gray-600 mb-8 text-center">
+          This application simulates a real-time ECG stream and an AI's ability to differentiate between a normal ECG and one indicative of Myocardial Infarction.
+          Select a scenario to start the live stream and see a mock diagnosis.
+        </p>
+
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row justify-center gap-4 mb-10">
+          <button
+            onClick={startNormalStream}
+            className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+            disabled={isStreaming} // Disable buttons when streaming
+          >
+            Start Normal ECG Stream
+          </button>
+          <button
+            onClick={startMIStream}
+            className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+            disabled={isStreaming} // Disable buttons when streaming
+          >
+            Start MI ECG Stream
+          </button>
+          {isStreaming && (
+            <button
+              onClick={stopStream}
+              className="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+            >
+              Stop Stream
+            </button>
+          )}
+        </div>
+
+        {/* Real-time ECG Display */}
+        <ECGDisplay ecgData={ecgData} />
+
+        {/* Analysis Results */}
+        {diagnosis && (
+          <div className="mt-8 border-t border-gray-200 pt-8">
+            <h2 className="text-2xl font-semibold text-gray-700 mb-4 text-center">
+              AI Analysis Result:
+            </h2>
+            <div className={`p-6 rounded-lg shadow-inner ${ecgType === 'normal' ? 'bg-green-50' : 'bg-red-50'}`}>
+              <p className="text-lg mb-2">
+                <span className="font-medium">Diagnosis:</span>{' '}
+                <span className={`font-bold ${ecgType === 'normal' ? 'text-green-800' : 'text-red-800'}`}>
+                  {diagnosis}
+                </span>
+              </p>
+              <p className="text-lg mb-4">
+                <span className="font-medium">Confidence Score:</span>{' '}
+                <span className="font-bold text-gray-700">{confidenceScore}%</span>
+              </p>
+
+              {/* ECG Characteristics */}
+              <div className="mt-6">
+                <h3 className="text-xl font-semibold text-gray-700 mb-3">
+                  Typical ECG Characteristics:
+                </h3>
+                <ul className="list-disc list-inside text-gray-700 space-y-1">
+                  {ecgCharacteristics.map((char, index) => (
+                    <li key={index}>{char}</li>
+                  ))}
+                </ul>
+                <p className="text-sm text-gray-500 mt-4 italic">
+                  Note: This application provides a simulated real-time ECG stream and AI analysis for educational purposes only. It is not a medical device and should not be used for actual diagnosis.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
-_CLASS_LABELS = {
-    0: "Normal",
-    1: "ST Depression",
-    2: "Myocardial Infarction",
-    3: "ST Elevation",
-    4: "Other Abnormalities"
+// ECG Display Component using Canvas for real-time plotting
+function ECGDisplay({ ecgData }) {
+  const canvasRef = useRef(null); // Ref to access the canvas DOM element
+
+  // Effect hook to draw the ECG waveform whenever `ecgData` changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return; // Exit if canvas element is not available
+
+    const ctx = canvas.getContext('2d'); // Get 2D rendering context
+    if (!ctx) return; // Exit if context is not available
+
+    // Make canvas responsive to its container
+    // Get the actual width and height from the computed style
+    const containerWidth = canvas.offsetWidth;
+    const containerHeight = canvas.offsetHeight;
+    canvas.width = containerWidth;
+    canvas.height = containerHeight;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the entire canvas
+
+    // Define ECG grid parameters
+    const majorGridColor = '#e0e0e0'; // Light grey for major lines
+    const minorGridColor = '#f0f0f0'; // Lighter grey for minor lines
+    const majorGridSpacing = 50; // Pixels per major grid square (e.g., 5mm at 10px/mm)
+    const minorGridSpacing = majorGridSpacing / 5; // 5 minor squares per major square
+
+    const leadColor = '#1a56db'; // Blue for the ECG line
+    const centerY = canvas.height / 2; // Vertical center of the canvas for baseline
+
+    // Draw minor grid lines
+    ctx.strokeStyle = minorGridColor;
+    ctx.lineWidth = 0.2;
+    for (let x = 0; x < canvas.width; x += minorGridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += minorGridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+
+    // Draw major grid lines
+    ctx.strokeStyle = majorGridColor;
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x < canvas.width; x += majorGridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += majorGridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
+
+    // Draw the ECG waveform
+    if (ecgData.length > 1) {
+      ctx.strokeStyle = leadColor;
+      ctx.lineWidth = 2; // Thicker line for the ECG trace
+
+      ctx.beginPath();
+      // Start the path at the first point
+      ctx.moveTo(0, centerY - ecgData[0]);
+
+      // Draw lines to connect subsequent points
+      // The x-coordinate is simply the index, scaled to fit the canvas width
+      // The y-coordinate is the baseline (centerY) minus the ECG data value (to invert y-axis for typical ECG display)
+      for (let i = 1; i < ecgData.length; i++) {
+        const x = i;
+        const y = centerY - ecgData[i];
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke(); // Render the ECG path
+    }
+  }, [ecgData]); // Redraw whenever ecgData changes
+
+  return (
+    <div className="w-full flex justify-center mt-6">
+      <canvas
+        ref={canvasRef}
+        className="border border-gray-300 rounded-md bg-white shadow-inner w-full h-64" // Responsive sizing
+      ></canvas>
+    </div>
+  );
 }
 
-# Realistic amplitude/duration ranges (ASCII-only) for each lead
-_LEAD_ANALYSIS = {
-    "I":   {"amplitude": "0.5-1.7 mV", "duration": "<= 120 ms"},
-    "II":  {"amplitude": "0.5-1.7 mV", "duration": "<= 120 ms"},
-    "III": {"amplitude": "0.1-0.5 mV", "duration": "<= 120 ms"},
-    "aVR": {"amplitude": "0.1-0.5 mV", "duration": "<= 120 ms"},
-    "aVL": {"amplitude": "0.1-0.5 mV", "duration": "<= 120 ms"},
-    "aVF": {"amplitude": "0.1-0.5 mV", "duration": "<= 120 ms"},
-    "V1":  {"amplitude": "<= 0.3 mV", "duration": "<= 110 ms"},
-    "V2":  {"amplitude": "<= 0.3 mV", "duration": "<= 110 ms"},
-    "V3":  {"amplitude": "0.3-1.5 mV", "duration": "<= 110 ms"},
-    "V4":  {"amplitude": "0.5-2.5 mV", "duration": "<= 110 ms"},
-    "V5":  {"amplitude": "0.5-2.5 mV", "duration": "<= 120 ms"},
-    "V6":  {"amplitude": "0.5-2.5 mV", "duration": "<= 120 ms"}
-}
-
-_LEADS_ALL = list(_LEAD_ANALYSIS.keys())
+export default App;
 
 
-def preprocess_ecg_image(image_path):
-    """Convert ECG image to 1D time-series data matching model's expected input shape"""
-    img = load_img(image_path, target_size=(256, 256), color_mode="grayscale")
-    img_arr = img_to_array(img) / 255.0
+    
 
-    # Extract a single lead by taking vertical average (results in 256 points)
-    ecg_signal = img_arr.mean(axis=1).squeeze()
+       
+      
+ 
+      
+      
 
-    # Resample to 187 points to match model input
-    ecg_signal = np.interp(
-        np.linspace(0, 1, 187),
-        np.linspace(0, 1, len(ecg_signal)),
-        ecg_signal
-    )
+ 
+  
+   
+       
+   
 
-    # Add channel dimension and batch dimension
-    processed_data = ecg_signal.reshape(1, 187, 1)
-    return processed_data
+  
 
 
-def analyze_st_segment(signal):
-    """Analyze ST segment from 1D signal"""
-    signal = signal.squeeze()
 
-    # Approximate segment locations (these would need calibration)
-    qrs_end = 100  # Approximate QRS end index
-    st_segment = signal[qrs_end:qrs_end + 20]  # ST segment region
+    
+        
 
-    baseline = np.median(signal[:50])  # First 50 points as baseline
-    st_level = np.median(st_segment) - baseline
-
-    return {
-        'elevation': st_level > 0.1,    # Threshold for elevation
-        'depression': st_level < -0.1,  # Threshold for depression
-        'level': float(st_level),
-        'leads_affected': ['II']        # Default to Lead II since we have 1D signal
-    }
+      
 
 
-def infer_mi_type(st_analysis):
-    affected_leads = st_analysis['leads_affected']
-    for mi_type, details in _MI_TYPES.items():
-        if all(lead in affected_leads for lead in details['leads']):
-            return mi_type
-    return "Undetermined Type"
-
-
-def validate_parameters(report):
-    warnings = []
-    try:
-        hr = int(report["Heart Rate"].split()[0])
-    except Exception:
-        hr = 0
-    if hr < 60:
-        warnings.append("Bradycardia detected (<60 BPM)")
-    elif hr > 100:
-        warnings.append("Tachycardia detected (>100 BPM)")
-    if report["Heart Rhythm"] == "Irregular":
-        warnings.append("Irregular rhythm requires further investigation")
-    if report["Diagnosis"] == "Myocardial Infarction" and report["ST Segment"] != "Elevation":
-        warnings.append("MI diagnosis without ST elevation - consider alternative diagnoses")
-    return warnings
-
-
-def process_ecg_image(image_path):
-    """Generate report with realistic variability"""
-    processed_data = preprocess_ecg_image(image_path)
-    pred = model.predict(processed_data)[0]
-    label_index = int(np.argmax(pred))
-    label = _CLASS_LABELS.get(label_index, "Unknown")
-
-    # Use actual class confidence, then add small Gaussian noise
-    confidence = float(pred[label_index])
-    confidence = min(1.0, max(0.0, confidence + np.random.normal(0, 0.02)))
-
-    st_analysis = analyze_st_segment(processed_data)
-
-    if label == "Myocardial Infarction":
-        st_seg = "Elevation"
-        mi_type = infer_mi_type(st_analysis)
-    elif label == "ST Depression":
-        st_seg = "Depression"
-        mi_type = "N/A"
-    else:
-        st_seg = "Normal"
-        mi_type = "N/A"
-
-    # Example detailed Lead II measurements (replace with actual extraction logic)
-    lead_ii_detail = {
-        "P_wave_amp": "0.25 mV",
-        "P_wave_dur": "80 ms",
-        "QRS_amp": "1.8 mV",
-        "QRS_dur": "100 ms",
-        "T_wave_amp": "0.35 mV",
-        "T_wave_dur": "160 ms",
-        "PR_interval": "160 ms",
-        "QT_interval": "400 ms",
-        "QTc_interval": "430 ms",
-        "ST_segment_lead_II": st_seg
-    }
-
-    report = {
-        "Patient ID": str(uuid.uuid4())[:8],
-        "Heart Rate": f"{np.random.randint(50, 110)} BPM",
-        "RR Interval": f"{np.random.uniform(0.6, 1.0):.2f} sec",
-        "Heart Rhythm": "Regular" if np.random.random() > 0.2 else "Irregular",
-        "Cardiac Axis": "Normal Axis",
-        "ST Segment": st_seg,
-        "Diagnosis": label,
-        "MI Type": mi_type,
-        "Confidence": confidence,
-        "Validation Warnings": [],
-        "Affected Leads": st_analysis['leads_affected'],
-        "Lead II Detail": lead_ii_detail
-    }
-
-    report["Validation Warnings"] = validate_parameters(report)
-    return report
-
-
-def generate_pdf_report(report, output_path="ECG_Report.pdf"):
-    """Creates a PDF with the exact format specified by the user, using tables."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "ECG Analysis Report", ln=True, align='C')
-    pdf.ln(8)
-
-    # Section I: Overall Assessment in table form
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 8, "I. Overall Assessment", ln=True)
-    pdf.ln(2)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(70, 8, "Parameter", border=1, align='C')
-    pdf.cell(0, 8, "Value", border=1, align='C', ln=True)
-
-    pdf.set_font("Arial", size=12)
-    overall_items = [
-        ("Heart Rate", report["Heart Rate"]),
-        ("RR Interval", report["RR Interval"]),
-        ("Heart Rhythm", report["Heart Rhythm"]),
-        ("Cardiac Axis", report["Cardiac Axis"]),
-        ("ST Segment", report["ST Segment"]),
-        ("Diagnosis", report["Diagnosis"]),
-        ("MI Type", report["MI Type"]),
-        ("Interpretation Accuracy", f"{report['Confidence']*100:.1f}%")
-    ]
-    for name, value in overall_items:
-        pdf.cell(70, 8, name, border=1)
-        pdf.cell(0, 8, value, border=1, ln=True)
-    pdf.ln(5)
-
-    # Section II: Detailed Lead II Analysis in table form
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 8, "II. Detailed Lead II Analysis", ln=True)
-    pdf.ln(2)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(60, 8, "Wave/Interval", border=1, align='C')
-    pdf.cell(0, 8, "Measurement", border=1, align='C', ln=True)
-
-    pdf.set_font("Arial", size=12)
-    lii = report["Lead II Detail"]
-    lead_ii_items = [
-        ("P wave Amp", lii["P_wave_amp"]),
-        ("P wave Dur", lii["P_wave_dur"]),
-        ("QRS Amp", lii["QRS_amp"]),
-        ("QRS Dur", lii["QRS_dur"]),
-        ("T wave Amp", lii["T_wave_amp"]),
-        ("T wave Dur", lii["T_wave_dur"]),
-        ("PR interval", lii["PR_interval"]),
-        ("QT interval", lii["QT_interval"]),
-        ("QTc interval", lii["QTc_interval"]),
-        ("ST segment", lii["ST_segment_lead_II"])
-    ]
-    for name, value in lead_ii_items:
-        pdf.cell(60, 8, name, border=1)
-        pdf.cell(0, 8, value, border=1, ln=True)
-    pdf.ln(5)
-
-    # Section III: Lead-Wise Analysis Summary (remains tabular)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 8, "III. Lead-Wise Analysis Summary", ln=True)
-    pdf.ln(2)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(20, 8, "Lead", border=1, align='C')
-    pdf.cell(50, 8, "Amplitude (mV)", border=1, align='C')
-    pdf.cell(50, 8, "Duration (ms)", border=1, align='C')
-    pdf.cell(40, 8, "Morphology", border=1, align='C')
-    pdf.cell(30, 8, "QT (ms)", border=1, align='C', ln=True)
-
-    pdf.set_font("Arial", size=12)
-    qt_ms = int(report["Lead II Detail"]["QT_interval"].split()[0])
-    affected_set = set(report["Affected Leads"])
-    for lead in _LEADS_ALL:
-        amp = _LEAD_ANALYSIS[lead]["amplitude"]
-        dur = _LEAD_ANALYSIS[lead]["duration"]
-        morphology = "Abnormal" if lead in affected_set else "Normal"
-        pdf.cell(20, 8, lead, border=1)
-        pdf.cell(50, 8, amp, border=1)
-        pdf.cell(50, 8, dur, border=1)
-        pdf.cell(40, 8, morphology, border=1)
-        pdf.cell(30, 8, str(qt_ms), border=1, ln=True)
-
-    # Validation Warnings (if any)
-    if report["Validation Warnings"]:
-        pdf.ln(5)
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, "Clinical Validation Notes:", ln=True)
-        pdf.set_font("Arial", size=10)
-        for w in report["Validation Warnings"]:
-            # Use a simple hyphen instead of a bullet to avoid Unicode issues
-            pdf.cell(0, 6, f"- {w}", ln=True)
-
-    pdf.output(output_path)
-
-
-# Streamlit UI
-def main():
-    st.set_page_config(
-        page_title="Advanced ECG Analysis System",
-        page_icon="🫀",
-        layout="wide"
-    )
-
-    st.title("🫀 Advanced ECG Analysis System")
-    st.markdown("Upload an ECG image (PNG/JPG) for automated diagnosis.")
-
-    uploaded_file = st.file_uploader("Choose ECG Image", type=["png", "jpg", "jpeg"])
-    if uploaded_file:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
-            tmp_file.write(uploaded_file.read())
-            tmp_filename = tmp_file.name
-
-        report = process_ecg_image(tmp_filename)
-
-        # Display only key details on-screen
-        st.subheader("Summary")
-        st.write(f"- **Diagnosis:** {report['Diagnosis']}")
-        st.write(f"- **Interpretation Accuracy:** {report['Confidence']*100:.1f}%")
-        if report["Validation Warnings"]:
-            st.warning("⚠️ Validation Warnings:")
-            for w in report["Validation Warnings"]:
-                st.warning(f"- {w}")
-
-        # Show a bar plot of prediction confidences
-        confidences = model.predict(preprocess_ecg_image(tmp_filename))[0]
-        fig, ax = plt.subplots()
-        sns.barplot(x=list(_CLASS_LABELS.values()), y=confidences, ax=ax)
-        ax.set_ylabel("Prediction Confidence")
-        ax.set_xlabel("Diagnosis Classes")
-        st.pyplot(fig)
-
-        # Generate and download PDF
-        pdf_path = f"ECG_Report_{report['Patient ID']}.pdf"
-        generate_pdf_report(report, pdf_path)
-        with open(pdf_path, "rb") as f:
-            st.download_button(
-                label="Download Full Report (PDF)",
-                data=f,
-                file_name=pdf_path,
-                mime="application/pdf"
-            )
-
-
-if __name__ == "__main__":
-    main()
