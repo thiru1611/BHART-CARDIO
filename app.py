@@ -154,20 +154,20 @@ with col1:
     if st.button("Start Normal ECG Stream", disabled=st.session_state.is_streaming):
         st.session_state.is_streaming = True
         st.session_state.ecg_type = 'normal'
-        st.experimental_rerun() # Rerun to update the state and start streaming
-
+        # st.experimental_rerun() # REMOVED: No longer needed here
+        
 with col2:
     if st.button("Start MI ECG Stream", type="secondary", disabled=st.session_state.is_streaming):
         st.session_state.is_streaming = True
         st.session_state.ecg_type = 'mi'
-        st.experimental_rerun() # Rerun to update the state and start streaming
+        # st.experimental_rerun() # REMOVED: No longer needed here
 
 with col3:
     if st.session_state.is_streaming:
         if st.button("Stop Stream", type="tertiary"):
             st.session_state.is_streaming = False
             st.session_state.ecg_type = None
-            st.experimental_rerun() # Rerun to clear state and stop streaming
+            # st.experimental_rerun() # REMOVED: No longer needed here
 
 # Placeholder for the ECG chart
 chart_placeholder = st.empty()
@@ -252,3 +252,6 @@ if st.session_state.is_streaming and st.session_state.ecg_type:
         # If the user stops the stream mid-loop, break out
         if not st.session_state.is_streaming:
             break
+
+      
+       
