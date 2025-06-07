@@ -3,6 +3,7 @@ import numpy as np
 import time
 import math
 import pandas as pd
+from io import BytesIO
 
 # Utility function to generate a single ECG point (Y-value) at a given time for a specific type
 # This function simulates the different phases of an ECG waveform (P, QRS, T) and adds noise.
@@ -139,27 +140,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Real-Time AI-Based ECG Analyzer (Simulated)")
-st.write("This application simulates a real-time ECG stream and an AI's ability to differentiate between a normal ECG and one indicative of Myocardial Infarction. Select a scenario to start the live stream and see a mock diagnosis.")
+st.write("This application simulates a real-time ECG stream and an AI's ability to differentiate between a normal ECG and one indicative of Myocardial Infarction. Select a scenario to start the live stream or upload a PDF for simulated analysis.")
 
 # State management for Streamlit
 if 'is_streaming' not in st.session_state:
     st.session_state.is_streaming = False
 if 'ecg_type' not in st.session_state:
     st.session_state.ecg_type = None
+if 'uploaded_pdf' not in st.session_state:
+    st.session_state.uploaded_pdf = None
+if 'pdf_analysis_triggered' not in st.session_state:
+    st.session_state.pdf_analysis_triggered = False
 
-# Action Buttons
+# --- Section for Real-time Stream Simulation ---
+st.header("Simulate Real-time ECG Stream")
 col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
     if st.button("Start Normal ECG Stream", disabled=st.session_state.is_streaming):
         st.session_state.is_streaming = True
         st.session_state.ecg_type = 'normal'
+        st.session_state.pdf_analysis_triggered = False # Reset PDF analysis state
+        st.session_state.uploaded_pdf = None # Clear uploaded PDF
         # st.experimental_rerun() # REMOVED: No longer needed here
         
 with col2:
     if st.button("Start MI ECG Stream", type="secondary", disabled=st.session_state.is_streaming):
         st.session_state.is_streaming = True
         st.session_state.ecg_type = 'mi'
+        st.session_state.pdf_analysis_triggered = False # Reset PDF analysis state
+        st.session_state.uploaded_pdf = None # Clear uploaded PDF
         # st.experimental_rerun() # REMOVED: No longer needed here
 
 with col3:
@@ -167,46 +177,73 @@ with col3:
         if st.button("Stop Stream", type="tertiary"):
             st.session_state.is_streaming = False
             st.session_state.ecg_type = None
+            st.session_state.pdf_analysis_triggered = False # Reset PDF analysis state
             # st.experimental_rerun() # REMOVED: No longer needed here
 
 # Placeholder for the ECG chart
 chart_placeholder = st.empty()
-analysis_placeholder = st.empty()
+analysis_placeholder = st.empty() # Placeholder for analysis results
 
-# Real-time ECG Stream and Analysis
+
+# --- Section for PDF Upload and Simulated Analysis ---
+st.header("Upload ECG PDF for Simulated Analysis")
+uploaded_file = st.file_uploader("Upload a patient ECG PDF", type="pdf", disabled=st.session_state.is_streaming)
+
+if uploaded_file is not None:
+    st.session_state.uploaded_pdf = uploaded_file # Store uploaded file in session state
+    st.success(f"PDF uploaded successfully: {uploaded_file.name}")
+    st.info("Note: This app will simulate an AI diagnosis for the uploaded PDF. Actual ECG signal extraction and real AI analysis from a PDF is a complex task beyond the scope of this demo.")
+
+    # Display the uploaded PDF (a basic embed, may not work on all environments without external libraries)
+    # For a full-fledged PDF viewer, you might need `streamlit_pdf_viewer`
+    # st.write(f"Displaying {uploaded_file.name}:")
+    # st.download_button(
+    #     label="Download Uploaded PDF",
+    #     data=uploaded_file.getvalue(),
+    #     file_name=uploaded_file.name,
+    #     mime="application/pdf"
+    # )
+    # You could also use an iframe here, but security policies often restrict this
+    # st.markdown(f'<iframe src="data:application/pdf;base64,{base64.b64encode(uploaded_file.getvalue()).decode()}" width="700" height="400" type="application/pdf"></iframe>', unsafe_allow_html=True)
+
+
+    st.subheader("Simulate AI Analysis for Uploaded PDF")
+    col_pdf_normal, col_pdf_mi = st.columns(2)
+
+    with col_pdf_normal:
+        if st.button("Simulate Normal Result for PDF", disabled=st.session_state.is_streaming):
+            st.session_state.is_streaming = False # Ensure streaming stops if PDF analysis starts
+            st.session_state.pdf_analysis_triggered = True
+            st.session_state.ecg_type = 'normal' # Set type for simulated analysis
+            # st.experimental_rerun()
+
+    with col_pdf_mi:
+        if st.button("Simulate MI Result for PDF", type="secondary", disabled=st.session_state.is_streaming):
+            st.session_state.is_streaming = False # Ensure streaming stops if PDF analysis starts
+            st.session_state.pdf_analysis_triggered = True
+            st.session_state.ecg_type = 'mi' # Set type for simulated analysis
+            # st.experimental_rerun()
+
+    # Clear analysis results if a new PDF is uploaded or stream started
+    if not st.session_state.is_streaming and not st.session_state.pdf_analysis_triggered:
+        analysis_placeholder.empty()
+
+# --- Display Real-time ECG Stream (if active) ---
 if st.session_state.is_streaming and st.session_state.ecg_type:
-    # Perform AI analysis immediately when stream starts
-    diagnosis, confidence_score, characteristics = perform_ai_analysis(st.session_state.ecg_type)
-
-    # Display initial analysis results
-    with analysis_placeholder.container():
-        st.markdown(f"<h2 style='text-align: center; color: #4a5568;'>AI Analysis Result:</h2>", unsafe_allow_html=True)
-        if st.session_state.ecg_type == 'normal':
+    # Perform AI analysis immediately when stream starts (only if not already triggered by PDF)
+    if not st.session_state.pdf_analysis_triggered: # Only re-run analysis if it's a new stream
+        diagnosis, confidence_score, characteristics = perform_ai_analysis(st.session_state.ecg_type)
+    
+        # Display initial analysis results in the placeholder
+        with analysis_placeholder.container():
+            st.markdown(f"<h2 style='text-align: center; color: #4a5568;'>AI Analysis Result:</h2>", unsafe_allow_html=True)
+            diagnosis_style_color = '#065f46' if st.session_state.ecg_type == 'normal' else '#b91c1c'
+            bg_color = '#ecfdf5' if st.session_state.ecg_type == 'normal' else '#fef2f2'
             st.markdown(f"""
-                <div style='background-color: #ecfdf5; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);'>
+                <div style='background-color: {bg_color}; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);'>
                     <p style='text-align: left; font-size: 1.125rem; margin-bottom: 0.5rem;'>
                         <span style='font-weight: 500;'>Diagnosis:</span>
-                        <span style='font-weight: 700; color: #065f46;'> {diagnosis}</span>
-                    </p>
-                    <p style='text-align: left; font-size: 1.125rem; margin-bottom: 1rem;'>
-                        <span style='font-weight: 500;'>Confidence Score:</span>
-                        <span style='font-weight: 700; color: #4a5568;'> {confidence_score}%</span>
-                    </p>
-                    <h3 style='font-size: 1.25rem; font-weight: 600; color: #4a5568; margin-bottom: 0.75rem;'>Typical ECG Characteristics:</h3>
-                    <ul style='list-style-type: disc; margin-left: 1.25rem; color: #4a5568;'>
-                        {"".join(f"<li>{char}</li>" for char in characteristics)}
-                    </ul>
-                    <p style='text-align: left; font-size: 0.875rem; color: #718096; margin-top: 1rem; font-style: italic;'>
-                        Note: This application provides a simulated real-time ECG stream and AI analysis for educational purposes only. It is not a medical device and should not be used for actual diagnosis.
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-        else: # MI type
-            st.markdown(f"""
-                <div style='background-color: #fef2f2; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);'>
-                    <p style='text-align: left; font-size: 1.125rem; margin-bottom: 0.5rem;'>
-                        <span style='font-weight: 500;'>Diagnosis:</span>
-                        <span style='font-weight: 700; color: #b91c1c;'> {diagnosis}</span>
+                        <span style='font-weight: 700; color: {diagnosis_style_color};'> {diagnosis}</span>
                     </p>
                     <p style='text-align: left; font-size: 1.125rem; margin-bottom: 1rem;'>
                         <span style='font-weight: 500;'>Confidence Score:</span>
@@ -252,6 +289,38 @@ if st.session_state.is_streaming and st.session_state.ecg_type:
         # If the user stops the stream mid-loop, break out
         if not st.session_state.is_streaming:
             break
+
+# --- Display PDF Analysis Results (if triggered) ---
+if st.session_state.pdf_analysis_triggered and st.session_state.ecg_type:
+    # Perform AI analysis
+    diagnosis, confidence_score, characteristics = perform_ai_analysis(st.session_state.ecg_type)
+    
+    with analysis_placeholder.container():
+        st.markdown(f"<h2 style='text-align: center; color: #4a5568;'>AI Analysis Result for Uploaded PDF:</h2>", unsafe_allow_html=True)
+        diagnosis_style_color = '#065f46' if st.session_state.ecg_type == 'normal' else '#b91c1c'
+        bg_color = '#ecfdf5' if st.session_state.ecg_type == 'normal' else '#fef2f2'
+        st.markdown(f"""
+            <div style='background-color: {bg_color}; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);'>
+                <p style='text-align: left; font-size: 1.125rem; margin-bottom: 0.5rem;'>
+                    <span style='font-weight: 500;'>Diagnosis:</span>
+                    <span style='font-weight: 700; color: {diagnosis_style_color};'> {diagnosis}</span>
+                </p>
+                <p style='text-align: left; font-size: 1.125rem; margin-bottom: 1rem;'>
+                    <span style='font-weight: 500;'>Confidence Score:</span>
+                    <span style='font-weight: 700; color: #4a5568;'> {confidence_score}%</span>
+                </p>
+                <h3 style='font-size: 1.25rem; font-weight: 600; color: #4a5568; margin-bottom: 0.75rem;'>Typical ECG Characteristics:</h3>
+                <ul style='list-style-type: disc; margin-left: 1.25rem; color: #4a5568;'>
+                    {"".join(f"<li>{char}</li>" for char in characteristics)}
+                </ul>
+                <p style='text-align: left; font-size: 0.875rem; color: #718096; margin-top: 1rem; font-style: italic;'>
+                    Note: This application provides a simulated AI analysis for uploaded PDFs for educational purposes only. It is not a medical device and should not be used for actual diagnosis.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+    # Clear PDF analysis flag after displaying results
+    st.session_state.pdf_analysis_triggered = False
+
 
       
        
